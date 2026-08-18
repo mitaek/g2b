@@ -1,0 +1,8 @@
+# systemd timer 대신 cron을 사용할 경우의 예시 (crontab -e 로 등록)
+# TODO: /opt/competitor-dashboard 를 실제 배포 경로로 교체하세요.
+
+# 최초 백필용: 5개년 백필이 끝날 때까지 매일 새벽 2시 실행 (완료 후엔 조용히 종료)
+0 2 * * * cd /opt/competitor-dashboard && .venv/bin/python -m src.collect_data --full-backfill --daily-chunk >> /var/log/competitor-dashboard/backfill.log 2>&1
+
+# 정기 갱신용: 매주 일요일 새벽 3시 실행
+0 3 * * 0 cd /opt/competitor-dashboard && .venv/bin/python -m src.collect_data --weekly >> /var/log/competitor-dashboard/weekly.log 2>&1

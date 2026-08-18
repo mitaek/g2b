@@ -1,0 +1,11 @@
+[Unit]
+Description=Run competitor dashboard backfill daily until 5개년 백필이 끝날 때까지 반복
+# backfill_progress에 pending/failed 연도가 없으면 collect_data.py가 조용히 종료되므로
+# 5일(또는 실패 시 그 이상) 후에는 매일 실행되어도 별다른 동작 없이 끝납니다.
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

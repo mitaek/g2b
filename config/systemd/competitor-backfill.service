@@ -1,0 +1,9 @@
+[Unit]
+Description=Competitor Dashboard - daily backfill chunk (5개년 백필용)
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/opt/competitor-dashboard
+EnvironmentFile=/opt/competitor-dashboard/.env
+ExecStart=/opt/competitor-dashboard/.venv/bin/python -m src.collect_data --full-backfill --daily-chunk

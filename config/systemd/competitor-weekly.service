@@ -1,0 +1,9 @@
+[Unit]
+Description=Competitor Dashboard - weekly data refresh
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/opt/competitor-dashboard
+EnvironmentFile=/opt/competitor-dashboard/.env
+ExecStart=/opt/competitor-dashboard/.venv/bin/python -m src.collect_data --weekly

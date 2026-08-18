@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -160,5 +161,10 @@ def unit_price(product: Optional[str] = None, companies: Optional[str] = None, d
     return aggregations.unit_price_comparison(db, company_list, product=product)
 
 
-# API 라우트 등록 이후, 정적 프론트엔드를 루트 경로에 마운트합니다.
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+@app.get("/")
+def index():
+    return FileResponse("static/competitor_dashboard.html")
+
+
+# API 라우트 등록 이후, 나머지 정적 자산(css/js 등 추가 시 대비)을 /static에 마운트합니다.
+app.mount("/static", StaticFiles(directory="static"), name="static")

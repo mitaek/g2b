@@ -1,15 +1,697 @@
-<!--
-경쟁사 매출 대시보드 프론트엔드.
-/api/dashboard-data 등을 fetch해서 렌더링하는 방식으로 4단계에서 구현합니다.
-지금은 자리만 잡아둔 placeholder 입니다.
--->
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <title>경쟁사 매출 대시보드</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>경쟁사 매출 대시보드</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1f232c;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --text-dim: #9aa1ad;
+    --accent: #5b8cff;
+    --danger: #ff6b6b;
+    --warn: #e0a94a;
+    --ok: #45c98a;
+    --palette: #5b8cff, #45c98a, #e0a94a, #ff6b6b, #b083f0, #4fc3d9, #f07ab0, #c9d45b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, sans-serif;
+    line-height: 1.5;
+  }
+  header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--text-dim); font-size: 13px; }
+  main { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
+  section { margin-bottom: 28px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--text); }
+  .hint { color: var(--text-dim); font-size: 12px; margin-top: 8px; }
+  .banner {
+    background: #2b2410;
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .hidden { display: none !important; }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .chip.selectable.active { border-color: var(--accent); background: #1b2740; }
+  .chip .badge {
+    font-size: 10px;
+    background: var(--accent);
+    color: #0a0e18;
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .chip .x {
+    color: var(--text-dim);
+    font-weight: bold;
+    padding: 0 2px;
+  }
+  .chip .x:hover { color: var(--danger); }
+  .chip-color-dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  }
+
+  .add-form { display: flex; gap: 8px; margin-top: 12px; }
+  input[type="text"] {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  button {
+    background: var(--accent);
+    border: none;
+    color: #0a0e18;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  button.secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+  .kpi-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .kpi-card .name { font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+  .kpi-card .value { font-size: 18px; font-weight: 700; }
+  .kpi-card .sub { font-size: 12px; margin-top: 4px; color: var(--text-dim); }
+  .kpi-card .yoy.up { color: var(--ok); }
+  .kpi-card .yoy.down { color: var(--danger); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+
+  .toggle-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .toggle-row button { padding: 4px 10px; font-size: 12px; }
+  .toggle-row button.inactive { background: var(--panel-2); color: var(--text-dim); border: 1px solid var(--border); }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tabs button { padding: 4px 10px; font-size: 12px; }
+  .tabs button.inactive { background: var(--panel-2); color: var(--text-dim); border: 1px solid var(--border); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-dim); font-weight: 600; }
+
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .chart-svg { width: 100%; height: 260px; display: block; }
+  .donut-wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .donut-wrap .chart-svg { width: 220px; height: 220px; flex: 0 0 auto; }
+  .legend { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-item .chip-color-dot { width: 9px; height: 9px; }
+  .legend-item .val { color: var(--text-dim); margin-left: auto; padding-left: 10px; }
+</style>
 </head>
 <body>
-  <p>4단계에서 구현 예정입니다.</p>
+
+<header>
+  <h1>경쟁사 매출 대시보드</h1>
+  <p>나라장터 종합쇼핑몰 납품요구 물품 내역 기반</p>
+</header>
+
+<main>
+  <section id="backfill-banner-section" class="hidden">
+    <div class="banner" id="backfill-banner"></div>
+  </section>
+
+  <section class="panel" id="competitor-panel">
+    <h2>경쟁사 관리</h2>
+    <div class="chip-row" id="competitor-chips"></div>
+    <div class="add-form">
+      <input type="text" id="competitor-input" placeholder="업체명 입력" />
+      <button id="competitor-add-btn">추가</button>
+      <button class="secondary" id="refresh-btn">데이터 새로고침</button>
+    </div>
+    <div class="hint">최신 데이터는 매주 일요일 자동 갱신됩니다.</div>
+    <div class="hint" id="refresh-status-text"></div>
+  </section>
+
+  <section class="panel" id="kpi-section">
+    <h2>KPI</h2>
+    <div class="chip-row" id="filter-chips"></div>
+    <div class="kpi-grid" id="kpi-grid"></div>
+  </section>
+
+  <section class="panel">
+    <h2>월별 매출 추이</h2>
+    <svg id="monthlyChart" class="chart-svg"></svg>
+  </section>
+
+  <section>
+    <div class="two-col">
+      <div class="panel">
+        <h2>연도별 매출 비교</h2>
+        <svg id="yearlyChart" class="chart-svg"></svg>
+      </div>
+      <div class="panel">
+        <h2>시장점유율</h2>
+        <div class="toggle-row" id="share-toggle">
+          <button data-period="all">전체기간</button>
+          <button data-period="1y" class="inactive">최근1년</button>
+        </div>
+        <div class="donut-wrap">
+          <svg id="shareChart" class="chart-svg"></svg>
+          <div class="legend" id="shareLegend"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>물품분류별 매출 비중 (선택 업체 합산)</h2>
+    <div class="donut-wrap">
+      <svg id="categoryChart" class="chart-svg"></svg>
+      <div class="legend" id="categoryLegend"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="two-col">
+      <div class="panel">
+        <h2>TOP 수요기관</h2>
+        <div class="tabs" id="institutions-tabs"></div>
+        <table id="institutions-table"><thead><tr><th>기관명</th><th>매출</th><th>건수</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="panel">
+        <h2>TOP 세부품명</h2>
+        <div class="tabs" id="products-tabs"></div>
+        <table id="products-table"><thead><tr><th>세부품명</th><th>물품분류</th><th>매출</th><th>수량</th><th>평균단가</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>평균 단가 비교</h2>
+    <div class="add-form">
+      <input type="text" id="unit-price-search" placeholder="품명 검색 (비우면 공통 거래 품목 상위 10개)" />
+      <button id="unit-price-search-btn">조회</button>
+    </div>
+    <table id="unit-price-table"><thead><tr id="unit-price-head"><th>세부품명</th></tr></thead><tbody></tbody></table>
+    <div class="hint">동일 품목이어도 계약 조건에 따라 단가가 다를 수 있습니다.</div>
+  </section>
+
+  <section class="panel">
+    <h2>요약 테이블</h2>
+    <table id="summary-table"><thead><tr><th>업체</th><th>총매출</th><th>최근연도매출</th><th>전년대비성장률</th></tr></thead><tbody></tbody></table>
+  </section>
+</main>
+
+<script>
+const PALETTE = getComputedStyle(document.documentElement).getPropertyValue('--palette').split(',').map(s => s.trim());
+let allCompetitors = [];       // [{name, is_self}]
+let selectedCompanies = [];    // filter chips state
+let sharePeriod = 'all';
+let dashboardData = null;
+let activeInstitutionTab = null;
+let activeProductTab = null;
+
+function colorFor(name) {
+  const idx = allCompetitors.findIndex(c => c.name === name);
+  return PALETTE[(idx >= 0 ? idx : 0) % PALETTE.length];
+}
+
+function fmtWon(n) {
+  if (n === null || n === undefined) return '-';
+  return Math.round(n).toLocaleString('ko-KR') + '원';
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `${path} 요청 실패 (${res.status})`);
+  }
+  return res.json();
+}
+
+// ---------- 경쟁사 관리 ----------
+async function loadCompetitors() {
+  allCompetitors = await api('/api/competitors');
+  if (selectedCompanies.length === 0) {
+    selectedCompanies = allCompetitors.map(c => c.name);
+  } else {
+    selectedCompanies = selectedCompanies.filter(n => allCompetitors.some(c => c.name === n));
+  }
+  renderCompetitorChips();
+  renderFilterChips();
+}
+
+function renderCompetitorChips() {
+  const el = document.getElementById('competitor-chips');
+  el.innerHTML = '';
+  allCompetitors.forEach(c => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `
+      <span class="chip-color-dot" style="background:${colorFor(c.name)}"></span>
+      ${c.name} ${c.is_self ? '<span class="badge">자사</span>' : ''}
+      <span class="x" data-name="${c.name}">✕</span>
+    `;
+    chip.querySelector('.x').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await api(`/api/competitors/${encodeURIComponent(c.name)}`, { method: 'DELETE' });
+      await loadCompetitors();
+      await loadDashboard();
+    });
+    el.appendChild(chip);
+  });
+}
+
+document.getElementById('competitor-add-btn').addEventListener('click', async () => {
+  const input = document.getElementById('competitor-input');
+  const name = input.value.trim();
+  if (!name) return;
+  await api('/api/competitors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, is_self: false }),
+  });
+  input.value = '';
+  await loadCompetitors();
+  await loadDashboard();
+});
+
+// ---------- 새로고침 ----------
+document.getElementById('refresh-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('refresh-btn');
+  const statusText = document.getElementById('refresh-status-text');
+  btn.disabled = true;
+  statusText.innerHTML = '<span class="spinner"></span>데이터 수집 중...';
+  await api('/api/refresh', { method: 'POST' });
+
+  const poll = setInterval(async () => {
+    const status = await api('/api/refresh/status');
+    if (status.status === 'running') return;
+    clearInterval(poll);
+    btn.disabled = false;
+    if (status.status === 'failed') {
+      statusText.textContent = `수집 실패: ${status.error_message || '알 수 없는 오류'}`;
+    } else {
+      statusText.textContent = '수집 완료';
+      await loadBackfillBanner();
+      await loadDashboard();
+    }
+  }, 1500);
+});
+
+// ---------- 백필 배너 ----------
+async function loadBackfillBanner() {
+  const status = await api('/api/backfill-status');
+  const section = document.getElementById('backfill-banner-section');
+  const banner = document.getElementById('backfill-banner');
+  if (status.done_years < status.total_years) {
+    const years = status.years.map(y => y.target_year).join('~');
+    section.classList.remove('hidden');
+    banner.textContent = `데이터 백필 진행 중: ${years}년 중 ${status.done_years}/${status.total_years}년 완료`;
+  } else {
+    section.classList.add('hidden');
+  }
+}
+
+// ---------- 필터 chip ----------
+function renderFilterChips() {
+  const el = document.getElementById('filter-chips');
+  el.innerHTML = '';
+  allCompetitors.forEach(c => {
+    const active = selectedCompanies.includes(c.name);
+    const chip = document.createElement('span');
+    chip.className = `chip selectable ${active ? 'active' : ''}`;
+    chip.innerHTML = `<span class="chip-color-dot" style="background:${colorFor(c.name)}"></span>${c.name}`;
+    chip.addEventListener('click', () => {
+      if (selectedCompanies.includes(c.name)) {
+        selectedCompanies = selectedCompanies.filter(n => n !== c.name);
+      } else {
+        selectedCompanies = [...selectedCompanies, c.name];
+      }
+      renderFilterChips();
+      loadDashboard();
+    });
+    el.appendChild(chip);
+  });
+}
+
+// ---------- 대시보드 ----------
+async function loadDashboard() {
+  if (selectedCompanies.length === 0) {
+    dashboardData = null;
+    return;
+  }
+  const params = new URLSearchParams({ companies: selectedCompanies.join(','), period: sharePeriod });
+  dashboardData = await api(`/api/dashboard-data?${params.toString()}`);
+  renderKpi();
+  renderMonthlyChart();
+  renderYearlyChart();
+  renderShareChart();
+  renderCategoryChart();
+  renderTopTabs();
+  renderSummaryTable();
+  await refreshUnitPrice();
+}
+
+function renderKpi() {
+  const grid = document.getElementById('kpi-grid');
+  grid.innerHTML = '';
+  selectedCompanies.forEach(name => {
+    const k = dashboardData.kpi[name] || {};
+    const yoy = k.yoy_growth_pct;
+    const yoyClass = yoy === null || yoy === undefined ? '' : (yoy >= 0 ? 'up' : 'down');
+    const yoyText = yoy === null || yoy === undefined ? '-' : `${yoy > 0 ? '+' : ''}${yoy}%`;
+    const card = document.createElement('div');
+    card.className = 'kpi-card';
+    card.innerHTML = `
+      <div class="name"><span class="chip-color-dot" style="background:${colorFor(name)}"></span> ${name}</div>
+      <div class="value">${fmtWon(k.total_revenue)}</div>
+      <div class="sub">최근연도매출: ${fmtWon(k.recent_year_revenue)}</div>
+      <div class="sub yoy ${yoyClass}">전년대비 ${yoyText}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ---------- 경량 SVG 차트 (외부 라이브러리 의존성 없음) ----------
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgEl(tag, attrs) {
+  const e = document.createElementNS(SVG_NS, tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v));
+  return e;
+}
+
+function clearSvg(svg) {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+}
+
+function drawLineChart(svg, labels, datasets) {
+  clearSvg(svg);
+  const W = 600, H = 260, padL = 60, padR = 20, padT = 20, padB = 30;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const maxV = Math.max(1, ...datasets.flatMap(d => d.data), 0);
+  const stepX = labels.length > 1 ? (W - padL - padR) / (labels.length - 1) : 0;
+  const scaleY = v => H - padB - (v / maxV) * (H - padT - padB);
+
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ((H - padT - padB) * i) / 4;
+    svg.appendChild(svgEl('line', { x1: padL, x2: W - padR, y1: y, y2: y, stroke: '#2a2f3a', 'stroke-width': 1 }));
+    const val = maxV * (1 - i / 4);
+    const t = svgEl('text', { x: padL - 6, y: y + 3, fill: '#9aa1ad', 'font-size': 9, 'text-anchor': 'end' });
+    t.textContent = val >= 1000 ? `${Math.round(val / 1000)}k` : Math.round(val);
+    svg.appendChild(t);
+  }
+
+  const labelEvery = Math.max(1, Math.ceil(labels.length / 8));
+  labels.forEach((lab, i) => {
+    if (i % labelEvery !== 0 && i !== labels.length - 1) return;
+    const x = padL + i * stepX;
+    const t = svgEl('text', { x, y: H - 8, fill: '#9aa1ad', 'font-size': 9, 'text-anchor': 'middle' });
+    t.textContent = lab;
+    svg.appendChild(t);
+  });
+
+  datasets.forEach(ds => {
+    if (!ds.data.length) return;
+    const points = ds.data.map((v, i) => `${padL + i * stepX},${scaleY(v)}`).join(' ');
+    svg.appendChild(svgEl('polyline', { points, fill: 'none', stroke: ds.color, 'stroke-width': 2 }));
+    ds.data.forEach((v, i) => {
+      svg.appendChild(svgEl('circle', { cx: padL + i * stepX, cy: scaleY(v), r: 3, fill: ds.color }));
+    });
+  });
+}
+
+function drawBarChart(svg, labels, datasets) {
+  clearSvg(svg);
+  const W = 600, H = 260, padL = 60, padR = 20, padT = 20, padB = 30;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const maxV = Math.max(1, ...datasets.flatMap(d => d.data), 0);
+  const groupW = (W - padL - padR) / Math.max(1, labels.length);
+  const barW = groupW / (datasets.length + 1);
+
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ((H - padT - padB) * i) / 4;
+    svg.appendChild(svgEl('line', { x1: padL, x2: W - padR, y1: y, y2: y, stroke: '#2a2f3a', 'stroke-width': 1 }));
+    const val = maxV * (1 - i / 4);
+    const t = svgEl('text', { x: padL - 6, y: y + 3, fill: '#9aa1ad', 'font-size': 9, 'text-anchor': 'end' });
+    t.textContent = val >= 1000 ? `${Math.round(val / 1000)}k` : Math.round(val);
+    svg.appendChild(t);
+  }
+
+  labels.forEach((lab, i) => {
+    const x = padL + i * groupW + groupW / 2;
+    const t = svgEl('text', { x, y: H - 8, fill: '#9aa1ad', 'font-size': 9, 'text-anchor': 'middle' });
+    t.textContent = lab;
+    svg.appendChild(t);
+  });
+
+  datasets.forEach((ds, di) => {
+    ds.data.forEach((v, i) => {
+      const h = (v / maxV) * (H - padT - padB);
+      const x = padL + i * groupW + di * barW + barW * 0.1;
+      const y = H - padB - h;
+      svg.appendChild(svgEl('rect', { x, y, width: barW * 0.8, height: h, fill: ds.color, rx: 2 }));
+    });
+  });
+}
+
+function drawDonutChart(svg, items) {
+  clearSvg(svg);
+  const W = 220, H = 220, cx = W / 2, cy = H / 2, rOuter = 95, rInner = 52;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const total = items.reduce((a, b) => a + b.value, 0);
+  if (total <= 0) return;
+  let angle = -Math.PI / 2;
+  items.forEach(it => {
+    const frac = it.value / total;
+    const next = angle + frac * Math.PI * 2;
+    const largeArc = next - angle > Math.PI ? 1 : 0;
+    const x1 = cx + rOuter * Math.cos(angle), y1 = cy + rOuter * Math.sin(angle);
+    const x2 = cx + rOuter * Math.cos(next), y2 = cy + rOuter * Math.sin(next);
+    const x3 = cx + rInner * Math.cos(next), y3 = cy + rInner * Math.sin(next);
+    const x4 = cx + rInner * Math.cos(angle), y4 = cy + rInner * Math.sin(angle);
+    const d = `M ${x1} ${y1} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+    svg.appendChild(svgEl('path', { d, fill: it.color }));
+    angle = next;
+  });
+}
+
+function renderLegend(containerId, items) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  const total = items.reduce((a, b) => a + b.value, 0);
+  items.forEach(it => {
+    const pct = total > 0 ? ((it.value / total) * 100).toFixed(1) : '0.0';
+    const row = document.createElement('div');
+    row.className = 'legend-item';
+    row.innerHTML = `<span class="chip-color-dot" style="background:${it.color}"></span>${it.label}<span class="val">${pct}%</span>`;
+    el.appendChild(row);
+  });
+}
+
+function renderMonthlyChart() {
+  const datasets = selectedCompanies.map(name => ({
+    data: dashboardData.monthly_series[name] || [],
+    color: colorFor(name),
+  }));
+  drawLineChart(document.getElementById('monthlyChart'), dashboardData.months, datasets);
+}
+
+function renderYearlyChart() {
+  const datasets = selectedCompanies.map(name => ({
+    data: dashboardData.yearly_totals[name] || [],
+    color: colorFor(name),
+  }));
+  drawBarChart(document.getElementById('yearlyChart'), dashboardData.years, datasets);
+}
+
+document.querySelectorAll('#share-toggle button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    sharePeriod = btn.dataset.period;
+    document.querySelectorAll('#share-toggle button').forEach(b => b.classList.toggle('inactive', b !== btn));
+    loadDashboard();
+  });
+});
+
+function renderShareChart() {
+  const items = selectedCompanies.map(name => ({
+    label: name,
+    value: dashboardData.market_share[name] || 0,
+    color: colorFor(name),
+  }));
+  drawDonutChart(document.getElementById('shareChart'), items);
+  renderLegend('shareLegend', items);
+}
+
+function renderCategoryChart() {
+  const totals = {};
+  selectedCompanies.forEach(name => {
+    const cats = dashboardData.category_totals[name] || {};
+    Object.entries(cats).forEach(([cat, amt]) => { totals[cat] = (totals[cat] || 0) + amt; });
+  });
+  const items = Object.entries(totals).map(([label, value], i) => ({
+    label,
+    value,
+    color: PALETTE[i % PALETTE.length],
+  }));
+  drawDonutChart(document.getElementById('categoryChart'), items);
+  renderLegend('categoryLegend', items);
+}
+
+function renderTopTabs() {
+  if (!activeInstitutionTab || !selectedCompanies.includes(activeInstitutionTab)) {
+    activeInstitutionTab = selectedCompanies[0];
+  }
+  if (!activeProductTab || !selectedCompanies.includes(activeProductTab)) {
+    activeProductTab = selectedCompanies[0];
+  }
+  renderInstitutionTabs();
+  renderProductTabs();
+  renderInstitutionsTable();
+  renderProductsTable();
+}
+
+function renderInstitutionTabs() {
+  renderTabs('institutions-tabs', activeInstitutionTab, (name) => {
+    activeInstitutionTab = name;
+    renderInstitutionTabs();
+    renderInstitutionsTable();
+  });
+}
+
+function renderProductTabs() {
+  renderTabs('products-tabs', activeProductTab, (name) => {
+    activeProductTab = name;
+    renderProductTabs();
+    renderProductsTable();
+  });
+}
+
+function renderTabs(containerId, activeName, onClick) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  selectedCompanies.forEach(name => {
+    const btn = document.createElement('button');
+    btn.textContent = name;
+    if (name !== activeName) btn.classList.add('inactive');
+    btn.addEventListener('click', () => onClick(name));
+    el.appendChild(btn);
+  });
+}
+
+function renderInstitutionsTable() {
+  const tbody = document.querySelector('#institutions-table tbody');
+  tbody.innerHTML = '';
+  const rows = (dashboardData.top_institutions[activeInstitutionTab] || []);
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.institution}</td><td>${fmtWon(r.revenue)}</td><td>${r.count}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderProductsTable() {
+  const tbody = document.querySelector('#products-table tbody');
+  tbody.innerHTML = '';
+  const rows = (dashboardData.top_products[activeProductTab] || []);
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.product}</td><td>${r.category || '-'}</td><td>${fmtWon(r.revenue)}</td><td>${r.qty}</td><td>${fmtWon(r.avg_unit_price)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderSummaryTable() {
+  const tbody = document.querySelector('#summary-table tbody');
+  tbody.innerHTML = '';
+  selectedCompanies.forEach(name => {
+    const k = dashboardData.kpi[name] || {};
+    const tr = document.createElement('tr');
+    const yoy = k.yoy_growth_pct;
+    tr.innerHTML = `<td>${name}</td><td>${fmtWon(k.total_revenue)}</td><td>${fmtWon(k.recent_year_revenue)}</td><td>${yoy === null || yoy === undefined ? '-' : yoy + '%'}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ---------- 평균 단가 비교 ----------
+async function refreshUnitPrice(product) {
+  const params = new URLSearchParams({ companies: selectedCompanies.join(',') });
+  if (product) params.set('product', product);
+  const data = await api(`/api/unit-price?${params.toString()}`);
+
+  const head = document.getElementById('unit-price-head');
+  head.innerHTML = '<th>세부품명</th>' + selectedCompanies.map(n => `<th>${n}</th>`).join('');
+
+  const tbody = document.querySelector('#unit-price-table tbody');
+  tbody.innerHTML = '';
+  Object.entries(data).forEach(([productName, perCompany]) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${productName}</td>` + selectedCompanies.map(n => `<td>${fmtWon(perCompany[n])}</td>`).join('');
+    tbody.appendChild(tr);
+  });
+}
+
+document.getElementById('unit-price-search-btn').addEventListener('click', () => {
+  const q = document.getElementById('unit-price-search').value.trim();
+  refreshUnitPrice(q || undefined);
+});
+
+// ---------- 초기화 ----------
+(async function init() {
+  await loadCompetitors();
+  await loadBackfillBanner();
+  await loadDashboard();
+})();
+</script>
 </body>
 </html>

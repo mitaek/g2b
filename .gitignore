@@ -1,0 +1,20 @@
+# 환경변수
+.env
+
+# 로컬 데이터 (DB, 경쟁사 목록 등)
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.json
+!data/.gitkeep
+
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# 기타
+.DS_Store
+*.log

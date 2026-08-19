@@ -26,22 +26,22 @@ with get_session() as session:
     total_naive = sum(float(r.dlvr_amt or 0) for r in rows)
     print(f"단순 합계(현재 방식): {total_naive:,.0f}원")
 
-    # dlvr_req_no + prdct_idnt_no 별로 chg_cha가 여러 개 있는지 확인
+    # dlvr_req_no + prdct_sno 별로 chg_cha가 여러 개 있는지 확인 (진짜 자연키)
     groups = defaultdict(list)
     for r in rows:
-        groups[(r.dlvr_req_no, r.prdct_idnt_no)].append(r)
+        groups[(r.dlvr_req_no, r.prdct_sno)].append(r)
 
     multi_revision_groups = {k: v for k, v in groups.items() if len(v) > 1}
-    print(f"동일 (납품요구번호, 물품식별번호) 조합인데 행이 2개 이상인 경우: {len(multi_revision_groups)}건")
-    for (req_no, idnt_no), rs in list(multi_revision_groups.items())[:5]:
-        print(f"  {req_no} / {idnt_no}: " + ", ".join(f"chg_cha={r.dlvr_req_chg_cha} amt={r.dlvr_amt}" for r in rs))
+    print(f"동일 (납품요구번호, 물품순번) 조합인데 행이 2개 이상인 경우: {len(multi_revision_groups)}건")
+    for (req_no, sno), rs in list(multi_revision_groups.items())[:5]:
+        print(f"  {req_no} / 순번{sno}: " + ", ".join(f"chg_cha={r.dlvr_req_chg_cha} amt={r.dlvr_amt}" for r in rs))
 
     # 최신 변경차수만 남기고 합산했을 때의 값
     total_dedup = 0.0
-    for (req_no, idnt_no), rs in groups.items():
+    for (req_no, sno), rs in groups.items():
         latest = max(rs, key=lambda r: r.dlvr_req_chg_cha)
         total_dedup += float(latest.dlvr_amt or 0)
-    print(f"(납품요구번호,물품식별번호)별 최신 변경차수만 합산: {total_dedup:,.0f}원")
+    print(f"(납품요구번호,물품순번)별 최신 변경차수만 합산: {total_dedup:,.0f}원")
 
     # collected_at 기준으로 언제 수집된 데이터인지 확인 (여러 시점에 걸쳐 있으면 재수집 전 잔여 데이터 의심)
     collected_times = sorted({r.collected_at.strftime("%Y-%m-%d %H:%M") for r in rows if r.collected_at})
@@ -63,7 +63,7 @@ with get_session() as session:
     top_rows = sorted(rows, key=lambda r: float(r.dlvr_amt or 0), reverse=True)[:5]
     for r in top_rows:
         print(
-            f"- dlvr_req_no={r.dlvr_req_no} chg_cha={r.dlvr_req_chg_cha} "
+            f"- dlvr_req_no={r.dlvr_req_no} chg_cha={r.dlvr_req_chg_cha} prdct_sno={r.prdct_sno} "
             f"prdct_idnt_no={r.prdct_idnt_no} dcisn_dt={r.dcisn_dt} dlvr_amt={r.dlvr_amt} "
             f"dmnd_instt_nm={r.dmnd_instt_nm}"
         )

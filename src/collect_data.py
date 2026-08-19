@@ -9,8 +9,10 @@
   --mock                          : 실제 API 대신 내장 샘플 데이터로 upsert 로직 검증
                                      (SERVICE_KEY/BASE_URL 없이도 동작 확인 가능)
 
-모든 모드는 DB upsert를 사용합니다 (dlvr_req_no + dlvr_req_chg_cha + prdct_idnt_no
-조합이 같으면 UPDATE, 없으면 INSERT). 이 3개 조합이 실제 API의 자연키입니다.
+모든 모드는 DB upsert를 사용합니다 (dlvr_req_no + dlvr_req_chg_cha + prdct_sno
+조합이 같으면 UPDATE, 없으면 INSERT). 이 3개 조합이 실제 API의 자연키입니다
+(물품식별번호는 한 납품요구 안에서 같은 상품이 서로 다른 줄로 중복 발주될 수
+있어 자연키로 쓸 수 없음 - 물품순번을 써야 함).
 
 이 오퍼레이션은 세부품명번호(dtilPrdctClsfcNo)로 직접 필터링이 가능해서, 전국
 데이터를 다 받지 않고 경쟁사들이 활동하는 업종(DTL_PRDCT_NOS)만 조회합니다.
@@ -52,7 +54,8 @@ FIELD_MAP = {
     "cntrctDlvrReqDate": "dcisn_dt",  # 계약납품요구일자
     "cntrctDlvrReqNo": "dlvr_req_no",  # 계약납품요구번호
     "cntrctDlvrReqChgOrd": "dlvr_req_chg_cha",  # 변경차수
-    "prdctIdntNo": "prdct_idnt_no",  # 물품식별번호 (자연키 일부)
+    "prdctSno": "prdct_sno",  # 물품순번 (자연키 일부. 실제 응답에 있으나 공식 문서 표에는 누락되어 있었음)
+    "prdctIdntNo": "prdct_idnt_no",  # 물품식별번호 (정보용, 자연키 아님)
     "prdctClsfcNoNm": "prdct_clsfc_nm",  # 품명(물품분류명)
     "dtilPrdctClsfcNoNm": "dtl_prdct_nm",  # 세부품명
     "dminsttNm": "dmnd_instt_nm",  # 수요기관명
@@ -63,7 +66,7 @@ FIELD_MAP = {
     "prdctQty": "dlvr_qty",  # 수량
 }
 
-_INT_FIELDS = {"dlvr_req_chg_cha", "prdct_idnt_no"}
+_INT_FIELDS = {"dlvr_req_chg_cha", "prdct_sno", "prdct_idnt_no"}
 _NUMERIC_FIELDS = {"dlvr_amt", "dlvr_qty"}
 
 START_YEAR_OFFSET = 4  # 현재연도 - 4 = 5개년
@@ -93,6 +96,7 @@ def _mock_rows():
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
+            "prdct_sno": 1,
             "prdct_idnt_no": 11111111,
             "prdct_clsfc_nm": "통신소프트웨어",
             "dtl_prdct_nm": "통신소프트웨어",
@@ -108,6 +112,7 @@ def _mock_rows():
             "contract_no": "C-2025-002",
             "dlvr_req_no": "D-2025-0002",
             "dlvr_req_chg_cha": 0,
+            "prdct_sno": 1,
             "prdct_idnt_no": 22222222,
             "prdct_clsfc_nm": "패키지소프트웨어",
             "dtl_prdct_nm": "패키지소프트웨어개발및도입서비스",
@@ -124,6 +129,7 @@ def _mock_rows():
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
+            "prdct_sno": 1,
             "prdct_idnt_no": 11111111,
             "prdct_clsfc_nm": "통신소프트웨어",
             "dtl_prdct_nm": "통신소프트웨어",
@@ -133,14 +139,16 @@ def _mock_rows():
             "raw_json": "{}",
         },
         {
-            # 같은 세부품명, 다른 물품식별번호 (서로 다른 품목 - 유니크키 검증용)
+            # 물품순번만 다르고 물품식별번호는 동일 (같은 상품을 두 줄로 발주한
+            # 실제 사례 재현 - 물품식별번호를 자연키로 쓰면 이 행이 사라짐)
             "dcisn_dt": date(2025, 3, 10),
             "corp_nm": "가나컴퍼니",
             "corp_biz_no": "111-11-11111",
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
-            "prdct_idnt_no": 33333333,
+            "prdct_sno": 2,
+            "prdct_idnt_no": 11111111,
             "prdct_clsfc_nm": "통신소프트웨어",
             "dtl_prdct_nm": "통신소프트웨어",
             "dmnd_instt_nm": "국립중앙도서관",
@@ -288,17 +296,18 @@ def fetch_rows(date_from: date, date_to: date):
 
 
 def upsert_rows(session, rows):
-    """dlvr_req_no + dlvr_req_chg_cha + prdct_idnt_no 기준 upsert."""
+    """dlvr_req_no + dlvr_req_chg_cha + prdct_sno 기준 upsert."""
     if not rows:
         return 0
 
     insert_fn = postgresql_insert if engine.dialect.name == "postgresql" else sqlite_insert
-    conflict_cols = ["dlvr_req_no", "dlvr_req_chg_cha", "prdct_idnt_no"]
+    conflict_cols = ["dlvr_req_no", "dlvr_req_chg_cha", "prdct_sno"]
     update_cols = [
         "dcisn_dt",
         "corp_nm",
         "corp_biz_no",
         "contract_no",
+        "prdct_idnt_no",
         "prdct_clsfc_nm",
         "dtl_prdct_nm",
         "dmnd_instt_nm",

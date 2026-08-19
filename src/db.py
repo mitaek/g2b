@@ -62,7 +62,9 @@ class DeliveryRequest(Base):
     contract_no = Column(String, nullable=True)
     dlvr_req_no = Column(String, nullable=False)
     dlvr_req_chg_cha = Column(Integer, nullable=False, default=0)
-    prdct_idnt_no = Column(Integer, nullable=False, default=0)  # 물품식별번호 (자연키 일부)
+    prdct_sno = Column(Integer, nullable=False, default=0)  # 물품순번 (자연키 일부. 물품식별번호는 한
+    # 납품요구 안에서 중복될 수 있어(같은 상품을 서로 다른 줄로 발주) 순번을 써야 함)
+    prdct_idnt_no = Column(Integer, nullable=True)  # 물품식별번호 (정보용, 자연키 아님)
     prdct_clsfc_nm = Column(String, nullable=True)
     dtl_prdct_nm = Column(String, nullable=True)
     dmnd_instt_nm = Column(String, nullable=True)
@@ -75,7 +77,7 @@ class DeliveryRequest(Base):
         UniqueConstraint(
             "dlvr_req_no",
             "dlvr_req_chg_cha",
-            "prdct_idnt_no",
+            "prdct_sno",
             name="uq_delivery_request_identity",
         ),
         Index("ix_delivery_requests_corp_nm", "corp_nm"),

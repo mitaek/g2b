@@ -1,5 +1,6 @@
 """
-조달청 나라장터종합쇼핑몰품목정보서비스 - 납품요구상세정보조회(getDlvrReqDtlInfoList) 수집 스크립트.
+조달청 나라장터종합쇼핑몰품목정보서비스 - 특정품목조달내역 목록조회
+(getSpcifyPrdlstPrcureInfoList) 수집 스크립트.
 
 실행 모드:
   --full-backfill                 : START_YEAR(현재연도-4) ~ 현재까지 전체 수집
@@ -8,12 +9,18 @@
   --mock                          : 실제 API 대신 내장 샘플 데이터로 upsert 로직 검증
                                      (SERVICE_KEY/BASE_URL 없이도 동작 확인 가능)
 
-모든 모드는 DB upsert를 사용합니다 (dlvr_req_no + dlvr_req_chg_cha + prdct_sno
-조합이 같으면 UPDATE, 없으면 INSERT). 이 3개 조합이 실제 API의 자연키입니다
-(같은 세부품명이라도 물품순번이 다르면 서로 다른 품목입니다).
+모든 모드는 DB upsert를 사용합니다 (dlvr_req_no + dlvr_req_chg_cha + prdct_idnt_no
+조합이 같으면 UPDATE, 없으면 INSERT). 이 3개 조합이 실제 API의 자연키입니다.
 
-API는 조회기간(inqryBgnDate~inqryEndDate)을 최대 1개월로 제한하므로,
-fetch_rows()가 내부적으로 30일 단위 구간으로 쪼개서 여러 번 호출합니다.
+이 오퍼레이션은 세부품명번호(dtilPrdctClsfcNo)로 직접 필터링이 가능해서, 전국
+데이터를 다 받지 않고 경쟁사들이 활동하는 업종(DTL_PRDCT_NOS)만 조회합니다.
+조회기간도 최대 12개월까지 허용되어 --full-backfill --daily-chunk가 연도 단위로
+한 번에 처리됩니다.
+
+주의: 참고문서(조달청 OpenAPI 참고자료)의 이 오퍼레이션 "요청/응답 메시지 예제"
+섹션이 다른 오퍼레이션 것과 뒤섞여 있는 것으로 보여, 공식 "응답 메시지 명세" 표를
+기준으로 FIELD_MAP을 작성했습니다. 실제 응답과 다르면(예: fetched=0이 계속
+나오거나 필드가 비어있으면) 실제 응답을 보고 FIELD_MAP을 조정해야 합니다.
 """
 
 import argparse
@@ -32,48 +39,45 @@ from src.db import BackfillProgress, CollectionRun, Competitor, DeliveryRequest,
 
 load_dotenv()
 
-# 조달청_나라장터종합쇼핑몰품목정보서비스 - 납품요구상세정보조회
+# 조달청_나라장터종합쇼핑몰품목정보서비스 - 특정품목조달내역 목록조회
 BASE_URL = os.getenv(
     "BASE_URL",
-    "https://apis.data.go.kr/1230000/at/ShoppingMallPrdctInfoService/getDlvrReqDtlInfoList",
+    "https://apis.data.go.kr/1230000/at/ShoppingMallPrdctInfoService/getSpcifyPrdlstPrcureInfoList",
 )
 SERVICE_KEY = os.getenv("SERVICE_KEY", "REPLACE_ME")
 
-# 응답 필드명 -> DB 컬럼명 매핑 (참고문서 "응답 메시지 명세" 기준)
+# 응답 필드명 -> DB 컬럼명 매핑 (참고문서 "응답 메시지 명세" 표 기준)
 FIELD_MAP = {
-    "dlvrReqRcptDate": "dcisn_dt",  # 납품요구접수일자
-    "corpNm": "corp_nm",
-    "cntrctCorpBizno": "corp_biz_no",
-    "cntrctNo": "contract_no",
-    "dlvrReqNo": "dlvr_req_no",
-    "dlvrReqChgOrd": "dlvr_req_chg_cha",  # 납품요구변경차수
-    "prdctSno": "prdct_sno",  # 물품순번 (자연키 일부)
+    "cntrctDlvrReqDate": "dcisn_dt",  # 계약납품요구일자
+    "cntrctDlvrReqNo": "dlvr_req_no",  # 계약납품요구번호
+    "cntrctDlvrReqChgOrd": "dlvr_req_chg_cha",  # 변경차수
+    "prdctIdntNo": "prdct_idnt_no",  # 물품식별번호 (자연키 일부)
     "prdctClsfcNoNm": "prdct_clsfc_nm",  # 품명(물품분류명)
     "dtilPrdctClsfcNoNm": "dtl_prdct_nm",  # 세부품명
     "dminsttNm": "dmnd_instt_nm",  # 수요기관명
-    "prdctAmt": "dlvr_amt",  # 물품금액 (이 품목 라인의 금액)
-    "prdctQty": "dlvr_qty",  # 물품수량 (이 품목 라인의 수량)
+    "corpNm": "corp_nm",  # 업체명
+    "bizno": "corp_biz_no",  # 업체사업자등록번호
+    "uprcCntrctNo": "contract_no",  # 단가계약번호
+    "prdctAmt": "dlvr_amt",  # 금액
+    "prdctQty": "dlvr_qty",  # 수량
 }
 
-_INT_FIELDS = {"dlvr_req_chg_cha", "prdct_sno"}
+_INT_FIELDS = {"dlvr_req_chg_cha", "prdct_idnt_no"}
 _NUMERIC_FIELDS = {"dlvr_amt", "dlvr_qty"}
 
 START_YEAR_OFFSET = 4  # 현재연도 - 4 = 5개년
-MAX_RANGE_DAYS = 30  # API 조회기간 제한 (최대 1개월)
+MAX_RANGE_DAYS = 364  # API 조회기간 제한 (최대 12개월, 여유있게 364일)
 PAGE_SIZE = 500
 REQUEST_DELAY_SEC = 0.1
 
-# 경쟁사들이 활동하는 세부품명으로 좁혀서 전국 데이터를 다 받지 않도록 필터링.
-# inqryDiv=1(날짜 검색)일 때만 적용 가능한 파라미터(dtilPrdctClsfcNoNm)이며,
-# API가 한 번에 하나의 값만 받으므로 세부품명 개수만큼 요청을 나눠서 호출합니다.
-# 필요시 .env의 DTL_PRDCT_NMS(콤마 구분)로 덮어쓸 수 있습니다. 비워두면(빈 리스트)
+# 경쟁사들이 활동하는 세부품명번호(코드)로 좁혀서 전국 데이터를 다 받지 않도록 필터링.
+# inqryPrdctDiv=2(세부품명 조회) + dtilPrdctClsfcNo로 요청하며, API가 한 번에
+# 하나의 코드만 받으므로 코드 개수만큼 요청을 나눠서 호출합니다.
+# 필요시 .env의 DTL_PRDCT_NOS(콤마 구분)로 덮어쓸 수 있습니다. 비워두면(빈 리스트)
 # 필터 없이 전국 데이터를 그대로 받습니다.
-DTL_PRDCT_NMS = [
+DTL_PRDCT_NOS = [
     s.strip()
-    for s in os.getenv(
-        "DTL_PRDCT_NMS",
-        "통신소프트웨어,패키지소프트웨어개발및도입서비스,시스템관리소프트웨어",
-    ).split(",")
+    for s in os.getenv("DTL_PRDCT_NOS", "4323300101,8111159801,4323290201").split(",")
     if s.strip()
 ]
 
@@ -88,9 +92,9 @@ def _mock_rows():
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
-            "prdct_sno": 1,
-            "prdct_clsfc_nm": "사무용가구",
-            "dtl_prdct_nm": "사무용 의자",
+            "prdct_idnt_no": 11111111,
+            "prdct_clsfc_nm": "통신소프트웨어",
+            "dtl_prdct_nm": "통신소프트웨어",
             "dmnd_instt_nm": "국립중앙도서관",
             "dlvr_amt": 1_200_000,
             "dlvr_qty": 10,
@@ -103,9 +107,9 @@ def _mock_rows():
             "contract_no": "C-2025-002",
             "dlvr_req_no": "D-2025-0002",
             "dlvr_req_chg_cha": 0,
-            "prdct_sno": 1,
-            "prdct_clsfc_nm": "사무기기",
-            "dtl_prdct_nm": "복합기",
+            "prdct_idnt_no": 22222222,
+            "prdct_clsfc_nm": "패키지소프트웨어",
+            "dtl_prdct_nm": "패키지소프트웨어개발및도입서비스",
             "dmnd_instt_nm": "서울특별시청",
             "dlvr_amt": 3_500_000,
             "dlvr_qty": 2,
@@ -119,25 +123,25 @@ def _mock_rows():
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
-            "prdct_sno": 1,
-            "prdct_clsfc_nm": "사무용가구",
-            "dtl_prdct_nm": "사무용 의자",
+            "prdct_idnt_no": 11111111,
+            "prdct_clsfc_nm": "통신소프트웨어",
+            "dtl_prdct_nm": "통신소프트웨어",
             "dmnd_instt_nm": "국립중앙도서관",
             "dlvr_amt": 1_260_000,  # 금액이 갱신된 케이스
             "dlvr_qty": 10,
             "raw_json": "{}",
         },
         {
-            # 같은 세부품명, 다른 물품순번 (서로 다른 품목 - 유니크키 검증용)
+            # 같은 세부품명, 다른 물품식별번호 (서로 다른 품목 - 유니크키 검증용)
             "dcisn_dt": date(2025, 3, 10),
             "corp_nm": "가나컴퍼니",
             "corp_biz_no": "111-11-11111",
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
-            "prdct_sno": 2,
-            "prdct_clsfc_nm": "사무용가구",
-            "dtl_prdct_nm": "사무용 의자",
+            "prdct_idnt_no": 33333333,
+            "prdct_clsfc_nm": "통신소프트웨어",
+            "dtl_prdct_nm": "통신소프트웨어",
             "dmnd_instt_nm": "국립중앙도서관",
             "dlvr_amt": 480_000,
             "dlvr_qty": 4,
@@ -147,7 +151,7 @@ def _mock_rows():
 
 
 def _chunk_date_range(date_from: date, date_to: date, max_days: int = MAX_RANGE_DAYS):
-    """API 조회기간이 최대 1개월로 제한되어 있어 max_days 단위로 분할."""
+    """API 조회기간이 최대 12개월로 제한되어 있어 max_days 단위로 분할."""
     chunks = []
     cur = date_from
     while cur <= date_to:
@@ -166,28 +170,29 @@ def _normalize_row(item: dict):
         if row.get(k) not in (None, ""):
             row[k] = Decimal(str(row[k]))
     if row.get("dcisn_dt"):
-        row["dcisn_dt"] = datetime.strptime(row["dcisn_dt"], "%Y-%m-%d").date()
+        row["dcisn_dt"] = datetime.strptime(str(row["dcisn_dt"]), "%Y%m%d").date()
     row["raw_json"] = json.dumps(item, ensure_ascii=False)
     return row
 
 
-def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_nm: str = None):
+def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
     rows = []
     page_no = 1
-    label = f"{date_from} ~ {date_to}" + (f" [{dtl_prdct_nm}]" if dtl_prdct_nm else "")
+    label = f"{date_from} ~ {date_to}" + (f" [{dtl_prdct_no}]" if dtl_prdct_no else "")
     print(f"  [fetch] {label} 조회 시작...", flush=True)
     while True:
         params = {
             "ServiceKey": SERVICE_KEY,
-            "type": "json",
+            "Type": "json",
             "inqryDiv": 1,
             "inqryBgnDate": date_from.strftime("%Y%m%d"),
             "inqryEndDate": date_to.strftime("%Y%m%d"),
             "pageNo": page_no,
             "numOfRows": PAGE_SIZE,
         }
-        if dtl_prdct_nm:
-            params["dtilPrdctClsfcNoNm"] = dtl_prdct_nm
+        if dtl_prdct_no:
+            params["inqryPrdctDiv"] = 2
+            params["dtilPrdctClsfcNo"] = dtl_prdct_no
         response = requests.get(BASE_URL, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -216,27 +221,32 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_nm: str = None):
 
 
 def fetch_rows(date_from: date, date_to: date):
+    if not DTL_PRDCT_NOS:
+        raise RuntimeError(
+            "DTL_PRDCT_NOS가 비어있습니다. 이 API는 세부품명번호(inqryPrdctDiv=2) 없이는 "
+            "조회할 수 없으므로 .env의 DTL_PRDCT_NOS에 경쟁사 업종의 세부품명번호를 "
+            "콤마로 구분해 넣어주세요."
+        )
     rows = []
     chunks = _chunk_date_range(date_from, date_to)
-    dtl_prdct_nms = DTL_PRDCT_NMS or [None]  # 필터 없으면 전국 데이터 그대로
-    total_calls = len(chunks) * len(dtl_prdct_nms)
+    total_calls = len(chunks) * len(DTL_PRDCT_NOS)
     call_i = 0
-    for dtl_prdct_nm in dtl_prdct_nms:
+    for dtl_prdct_no in DTL_PRDCT_NOS:
         for chunk_from, chunk_to in chunks:
             call_i += 1
             print(f"[fetch] {call_i}/{total_calls}", flush=True)
-            rows.extend(_fetch_chunk(chunk_from, chunk_to, dtl_prdct_nm=dtl_prdct_nm))
+            rows.extend(_fetch_chunk(chunk_from, chunk_to, dtl_prdct_no=dtl_prdct_no))
             time.sleep(REQUEST_DELAY_SEC)
     return rows
 
 
 def upsert_rows(session, rows):
-    """dlvr_req_no + dlvr_req_chg_cha + prdct_sno 기준 upsert."""
+    """dlvr_req_no + dlvr_req_chg_cha + prdct_idnt_no 기준 upsert."""
     if not rows:
         return 0
 
     insert_fn = postgresql_insert if engine.dialect.name == "postgresql" else sqlite_insert
-    conflict_cols = ["dlvr_req_no", "dlvr_req_chg_cha", "prdct_sno"]
+    conflict_cols = ["dlvr_req_no", "dlvr_req_chg_cha", "prdct_idnt_no"]
     update_cols = [
         "dcisn_dt",
         "corp_nm",

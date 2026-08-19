@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import time
+import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -175,6 +176,29 @@ def _normalize_row(item: dict):
     return row
 
 
+def _parse_api_response(text: str):
+    """이 오퍼레이션은 Type=json을 보내도 XML로 응답하는 경우가 있어 둘 다 처리."""
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        return json.loads(stripped)["response"]
+
+    root = ET.fromstring(stripped)
+    header_el = root.find(".//header")
+    result_code = header_el.findtext("resultCode") if header_el is not None else None
+    result_msg = header_el.findtext("resultMsg") if header_el is not None else None
+
+    item_list = [
+        {child.tag: child.text for child in item_el} for item_el in root.findall(".//items/item")
+    ]
+    total_count_text = root.findtext(".//totalCount")
+    total_count = int(total_count_text) if total_count_text else 0
+
+    return {
+        "header": {"resultCode": result_code, "resultMsg": result_msg},
+        "body": {"items": {"item": item_list}, "totalCount": total_count},
+    }
+
+
 def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
     rows = []
     page_no = 1
@@ -196,18 +220,18 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
         response = requests.get(BASE_URL, params=params, timeout=30)
         response.raise_for_status()
         try:
-            data = response.json()
-        except ValueError as exc:
+            data = _parse_api_response(response.text)
+        except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
-                f"API 응답이 JSON이 아닙니다 (status={response.status_code}). "
+                f"API 응답 파싱 실패 (status={response.status_code}). "
                 f"응답 원문(앞 1000자): {response.text[:1000]!r}"
             ) from exc
 
-        header = data["response"]["header"]
+        header = data["header"]
         if header.get("resultCode") != "00":
             raise RuntimeError(f"API 오류: {header.get('resultCode')} {header.get('resultMsg')}")
 
-        body = data["response"]["body"]
+        body = data["body"]
         items = body.get("items") or {}
         item_list = items.get("item") if isinstance(items, dict) else items
         if item_list is None:

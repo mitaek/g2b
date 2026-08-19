@@ -12,6 +12,8 @@ import os
 import requests
 from dotenv import load_dotenv
 
+from src.collect_data import _parse_api_response
+
 load_dotenv()
 
 BASE_URL = "https://apis.data.go.kr/1230000/at/ShoppingMallPrdctInfoService/getSpcifyPrdlstPrcureInfoList"
@@ -19,15 +21,11 @@ SERVICE_KEY = os.getenv("SERVICE_KEY", "REPLACE_ME")
 DTL_PRDCT_NO = os.getenv("DTL_PRDCT_NOS", "4323300101").split(",")[0].strip()
 
 CASES = [
-    ("baseline: 7일, numOfRows=10", "20220101", "20220107", 10),
-    ("numOfRows=500 (7일)", "20220101", "20220107", 500),
-    ("numOfRows=100 (7일)", "20220101", "20220107", 100),
-    ("날짜범위 30일, numOfRows=10", "20220101", "20220130", 10),
-    ("날짜범위 90일, numOfRows=10", "20220101", "20220331", 10),
-    ("날짜범위 180일, numOfRows=10", "20220101", "20220630", 10),
-    ("날짜범위 270일, numOfRows=10", "20220101", "20220928", 10),
-    ("날짜범위 364일, numOfRows=10", "20220101", "20221230", 10),
-    ("날짜범위 365일, numOfRows=10", "20220101", "20221231", 10),
+    ("364일 + numOfRows=500 (실패했던 바로 그 조합)", "20220101", "20221230", 500),
+    ("364일 + numOfRows=250", "20220101", "20221230", 250),
+    ("364일 + numOfRows=100", "20220101", "20221230", 100),
+    ("364일 + numOfRows=50", "20220101", "20221230", 50),
+    ("7일 + numOfRows=1000", "20220101", "20220107", 1000),
 ]
 
 for label, bgn, end, num_of_rows in CASES:
@@ -44,22 +42,12 @@ for label, bgn, end, num_of_rows in CASES:
     }
     try:
         resp = requests.get(BASE_URL, params=params, timeout=30)
-        text = resp.text
-        if text.strip().startswith("{"):
-            import json
-
-            data = json.loads(text)
-            header = data["response"]["header"]
-            print(f"[{label}] resultCode={header.get('resultCode')} resultMsg={header.get('resultMsg')}")
-        else:
-            # XML 에러 응답에서 resultCode/resultMsg만 추출
-            import re
-
-            code = re.search(r"<resultCode>(.*?)</resultCode>", text)
-            msg = re.search(r"<resultMsg>(.*?)</resultMsg>", text)
-            print(
-                f"[{label}] (XML) resultCode={code.group(1) if code else '?'} "
-                f"resultMsg={msg.group(1) if msg else text[:200]}"
-            )
+        data = _parse_api_response(resp.text)
+        header = data["header"]
+        total_count = data["body"].get("totalCount", 0)
+        print(
+            f"[{label}] resultCode={header.get('resultCode')} "
+            f"resultMsg={header.get('resultMsg')} totalCount={total_count}"
+        )
     except Exception as exc:  # noqa: BLE001
-        print(f"[{label}] EXCEPTION: {exc}")
+        print(f"[{label}] EXCEPTION: {exc} / 응답 원문(앞 300자): {resp.text[:300]!r}")

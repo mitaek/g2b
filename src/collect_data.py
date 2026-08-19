@@ -211,12 +211,12 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
             "inqryDiv": 1,
             "inqryBgnDate": date_from.strftime("%Y%m%d"),
             "inqryEndDate": date_to.strftime("%Y%m%d"),
-            "pageNo": page_no,
-            "numOfRows": PAGE_SIZE,
         }
         if dtl_prdct_no:
             params["inqryPrdctDiv"] = 2
             params["dtilPrdctClsfcNo"] = dtl_prdct_no
+        params["pageNo"] = page_no
+        params["numOfRows"] = PAGE_SIZE
         response = requests.get(BASE_URL, params=params, timeout=30)
         response.raise_for_status()
         try:

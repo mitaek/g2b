@@ -195,7 +195,13 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
             params["dtilPrdctClsfcNo"] = dtl_prdct_no
         response = requests.get(BASE_URL, params=params, timeout=30)
         response.raise_for_status()
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"API 응답이 JSON이 아닙니다 (status={response.status_code}). "
+                f"응답 원문(앞 1000자): {response.text[:1000]!r}"
+            ) from exc
 
         header = data["response"]["header"]
         if header.get("resultCode") != "00":

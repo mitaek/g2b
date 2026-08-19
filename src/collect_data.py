@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
-from src.db import BackfillProgress, CollectionRun, Competitor, DeliveryRequest, engine, get_session
+from src.db import BackfillProgress, CollectionRun, Competitor, DeliveryRequest, engine, get_session, utcnow
 
 load_dotenv()
 
@@ -160,6 +160,7 @@ def _normalize_row(item: dict):
 def _fetch_chunk(date_from: date, date_to: date):
     rows = []
     page_no = 1
+    print(f"  [fetch] {date_from} ~ {date_to} 조회 시작...", flush=True)
     while True:
         params = {
             "ServiceKey": SERVICE_KEY,
@@ -189,6 +190,7 @@ def _fetch_chunk(date_from: date, date_to: date):
         rows.extend(_normalize_row(item) for item in item_list)
 
         total_count = int(body.get("totalCount", 0) or 0)
+        print(f"    페이지 {page_no} 조회 완료 ({len(rows)}/{total_count}건 누적)", flush=True)
         if not item_list or page_no * PAGE_SIZE >= total_count:
             break
         page_no += 1
@@ -198,7 +200,9 @@ def _fetch_chunk(date_from: date, date_to: date):
 
 def fetch_rows(date_from: date, date_to: date):
     rows = []
-    for chunk_from, chunk_to in _chunk_date_range(date_from, date_to):
+    chunks = _chunk_date_range(date_from, date_to)
+    for i, (chunk_from, chunk_to) in enumerate(chunks, start=1):
+        print(f"[fetch] 구간 {i}/{len(chunks)}", flush=True)
         rows.extend(_fetch_chunk(chunk_from, chunk_to))
         time.sleep(REQUEST_DELAY_SEC)
     return rows
@@ -227,7 +231,7 @@ def upsert_rows(session, rows):
 
     upserted = 0
     for row in rows:
-        row = {**row, "collected_at": datetime.utcnow()}
+        row = {**row, "collected_at": utcnow()}
         stmt = insert_fn(DeliveryRequest).values(**row)
         stmt = stmt.on_conflict_do_update(
             index_elements=conflict_cols,
@@ -243,7 +247,7 @@ def active_competitor_names(session):
 
 
 def run_collection(date_from: date, date_to: date, mock: bool = False):
-    started_at = datetime.utcnow()
+    started_at = utcnow()
     status = "success"
     error_message = None
     rows_fetched = 0
@@ -272,7 +276,7 @@ def run_collection(date_from: date, date_to: date, mock: bool = False):
             session.add(
                 CollectionRun(
                     started_at=started_at,
-                    finished_at=datetime.utcnow(),
+                    finished_at=utcnow(),
                     date_from=date_from,
                     date_to=date_to,
                     rows_fetched=rows_fetched,
@@ -286,7 +290,7 @@ def run_collection(date_from: date, date_to: date, mock: bool = False):
 
 
 def ensure_backfill_progress_rows():
-    current_year = datetime.utcnow().year
+    current_year = utcnow().year
     start_year = current_year - START_YEAR_OFFSET
     with get_session() as session:
         existing_years = {b.target_year for b in session.query(BackfillProgress).all()}
@@ -297,7 +301,7 @@ def ensure_backfill_progress_rows():
 
 def run_full_backfill(daily_chunk: bool, mock: bool = False):
     ensure_backfill_progress_rows()
-    current_year = datetime.utcnow().year
+    current_year = utcnow().year
     start_year = current_year - START_YEAR_OFFSET
 
     with get_session() as session:
@@ -315,7 +319,7 @@ def run_full_backfill(daily_chunk: bool, mock: bool = False):
         with get_session() as session:
             progress = session.query(BackfillProgress).filter_by(target_year=year).one()
             progress.status = "in_progress"
-            progress.started_at = datetime.utcnow()
+            progress.started_at = utcnow()
 
         date_from = date(year, 1, 1)
         date_to = date(year, 12, 31)
@@ -325,14 +329,14 @@ def run_full_backfill(daily_chunk: bool, mock: bool = False):
                 progress = session.query(BackfillProgress).filter_by(target_year=year).one()
                 progress.status = "done"
                 progress.rows_fetched = fetched
-                progress.finished_at = datetime.utcnow()
+                progress.finished_at = utcnow()
             print(f"[backfill] {year}년 완료: fetched={fetched}, upserted={upserted}")
         except Exception as exc:  # noqa: BLE001
             with get_session() as session:
                 progress = session.query(BackfillProgress).filter_by(target_year=year).one()
                 progress.status = "failed"
                 progress.error_message = str(exc)
-                progress.finished_at = datetime.utcnow()
+                progress.finished_at = utcnow()
             print(f"[backfill] {year}년 실패: {exc}")
 
 

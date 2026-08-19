@@ -5,7 +5,6 @@ FastAPI 백엔드.
 필요시 nginx에서 IP 제한 또는 basic auth 추가 가능.
 """
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
@@ -15,7 +14,7 @@ from pydantic import BaseModel
 
 from src import aggregations
 from src.collect_data import run_weekly
-from src.db import BackfillProgress, CollectionRun, Competitor, get_session
+from src.db import BackfillProgress, CollectionRun, Competitor, get_session, utcnow
 
 app = FastAPI(title="Competitor Sales Dashboard API")
 
@@ -61,7 +60,7 @@ def delete_competitor(name: str, db=Depends(get_db)):
     if not competitor:
         raise HTTPException(status_code=404, detail="경쟁사를 찾을 수 없습니다")
     competitor.is_active = False
-    competitor.deleted_at = datetime.utcnow()
+    competitor.deleted_at = utcnow()
     return {"name": name, "is_active": False}
 
 
@@ -76,12 +75,12 @@ def _resolve_companies(db, companies: Optional[str]):
 
 
 def _run_refresh_job():
-    REFRESH_STATE.update(status="running", started_at=datetime.utcnow(), finished_at=None, error_message=None)
+    REFRESH_STATE.update(status="running", started_at=utcnow(), finished_at=None, error_message=None)
     try:
         run_weekly()
-        REFRESH_STATE.update(status="done", finished_at=datetime.utcnow())
+        REFRESH_STATE.update(status="done", finished_at=utcnow())
     except Exception as exc:  # noqa: BLE001
-        REFRESH_STATE.update(status="failed", finished_at=datetime.utcnow(), error_message=str(exc))
+        REFRESH_STATE.update(status="failed", finished_at=utcnow(), error_message=str(exc))
 
 
 @app.post("/api/refresh")

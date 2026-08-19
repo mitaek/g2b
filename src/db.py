@@ -6,7 +6,7 @@ DATABASE_URL 하나로 SQLite(로컬)/PostgreSQL(서버) 전환 가능하도록 
 
 import os
 from contextlib import contextmanager
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from dotenv import load_dotenv
 from sqlalchemy import (
@@ -26,6 +26,12 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 load_dotenv()
 
+
+def utcnow():
+    """datetime.utcnow()의 deprecation-safe 대체 (naive UTC datetime 유지)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/app.db")
 
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
@@ -42,7 +48,7 @@ class Competitor(Base):
     name = Column(String, nullable=False, unique=True)
     is_active = Column(Boolean, nullable=False, default=True)
     is_self = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
     deleted_at = Column(DateTime, nullable=True)
 
 
@@ -63,7 +69,7 @@ class DeliveryRequest(Base):
     dlvr_amt = Column(Numeric, nullable=True)
     dlvr_qty = Column(Numeric, nullable=True)
     raw_json = Column(Text, nullable=True)
-    collected_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    collected_at = Column(DateTime, nullable=False, default=utcnow)
 
     __table_args__ = (
         UniqueConstraint(
@@ -83,7 +89,7 @@ class CollectionRun(Base):
     __tablename__ = "collection_runs"
 
     id = Column(Integer, primary_key=True)
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=False, default=utcnow)
     finished_at = Column(DateTime, nullable=True)
     date_from = Column(Date, nullable=True)
     date_to = Column(Date, nullable=True)

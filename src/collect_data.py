@@ -215,6 +215,8 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
         if dtl_prdct_no:
             params["inqryPrdctDiv"] = 2
             params["dtilPrdctClsfcNo"] = dtl_prdct_no
+        # 최종변경차수만 조회 (미지정 시 과거 개정 이력까지 전부 내려와 중복 합산됨)
+        params["fnlCntrctDlvrReqChgOrdYn"] = "Y"
         params["pageNo"] = page_no
         params["numOfRows"] = PAGE_SIZE
         response = requests.get(BASE_URL, params=params, timeout=30)

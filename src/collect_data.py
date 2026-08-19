@@ -63,6 +63,20 @@ MAX_RANGE_DAYS = 30  # API 조회기간 제한 (최대 1개월)
 PAGE_SIZE = 500
 REQUEST_DELAY_SEC = 0.1
 
+# 경쟁사들이 활동하는 세부품명으로 좁혀서 전국 데이터를 다 받지 않도록 필터링.
+# inqryDiv=1(날짜 검색)일 때만 적용 가능한 파라미터(dtilPrdctClsfcNoNm)이며,
+# API가 한 번에 하나의 값만 받으므로 세부품명 개수만큼 요청을 나눠서 호출합니다.
+# 필요시 .env의 DTL_PRDCT_NMS(콤마 구분)로 덮어쓸 수 있습니다. 비워두면(빈 리스트)
+# 필터 없이 전국 데이터를 그대로 받습니다.
+DTL_PRDCT_NMS = [
+    s.strip()
+    for s in os.getenv(
+        "DTL_PRDCT_NMS",
+        "통신소프트웨어,패키지소프트웨어개발및도입서비스,시스템관리소프트웨어",
+    ).split(",")
+    if s.strip()
+]
+
 
 def _mock_rows():
     """실 API 응답 대신 사용하는 샘플 데이터 (upsert 로직 검증용)."""
@@ -157,10 +171,11 @@ def _normalize_row(item: dict):
     return row
 
 
-def _fetch_chunk(date_from: date, date_to: date):
+def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_nm: str = None):
     rows = []
     page_no = 1
-    print(f"  [fetch] {date_from} ~ {date_to} 조회 시작...", flush=True)
+    label = f"{date_from} ~ {date_to}" + (f" [{dtl_prdct_nm}]" if dtl_prdct_nm else "")
+    print(f"  [fetch] {label} 조회 시작...", flush=True)
     while True:
         params = {
             "ServiceKey": SERVICE_KEY,
@@ -171,6 +186,8 @@ def _fetch_chunk(date_from: date, date_to: date):
             "pageNo": page_no,
             "numOfRows": PAGE_SIZE,
         }
+        if dtl_prdct_nm:
+            params["dtilPrdctClsfcNoNm"] = dtl_prdct_nm
         response = requests.get(BASE_URL, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -201,10 +218,15 @@ def _fetch_chunk(date_from: date, date_to: date):
 def fetch_rows(date_from: date, date_to: date):
     rows = []
     chunks = _chunk_date_range(date_from, date_to)
-    for i, (chunk_from, chunk_to) in enumerate(chunks, start=1):
-        print(f"[fetch] 구간 {i}/{len(chunks)}", flush=True)
-        rows.extend(_fetch_chunk(chunk_from, chunk_to))
-        time.sleep(REQUEST_DELAY_SEC)
+    dtl_prdct_nms = DTL_PRDCT_NMS or [None]  # 필터 없으면 전국 데이터 그대로
+    total_calls = len(chunks) * len(dtl_prdct_nms)
+    call_i = 0
+    for dtl_prdct_nm in dtl_prdct_nms:
+        for chunk_from, chunk_to in chunks:
+            call_i += 1
+            print(f"[fetch] {call_i}/{total_calls}", flush=True)
+            rows.extend(_fetch_chunk(chunk_from, chunk_to, dtl_prdct_nm=dtl_prdct_nm))
+            time.sleep(REQUEST_DELAY_SEC)
     return rows
 
 

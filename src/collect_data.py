@@ -229,7 +229,10 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
 
         header = data["header"]
         if header.get("resultCode") != "00":
-            raise RuntimeError(f"API 오류: {header.get('resultCode')} {header.get('resultMsg')}")
+            raise RuntimeError(
+                f"API 오류: {header.get('resultCode')} {header.get('resultMsg')} "
+                f"(요청 URL: {response.url})"
+            )
 
         body = data["body"]
         items = body.get("items") or {}

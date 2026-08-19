@@ -5,6 +5,7 @@
 사용법: python -m scripts.diagnose_revenue "업체명" 2025
 """
 
+import json
 import sys
 from collections import defaultdict
 
@@ -67,3 +68,18 @@ with get_session() as session:
             f"dmnd_instt_nm={r.dmnd_instt_nm}"
         )
         print(f"  raw_json: {r.raw_json}")
+
+    # cntrctDlvrDivNm(총액계약/납품요구) 구분별 합계 - 원 프로젝트 스펙은 "납품요구"만 대상
+    print("\n=== cntrctDlvrDivNm(계약납품구분)별 합계 ===")
+    by_div = defaultdict(lambda: {"revenue": 0.0, "count": 0})
+    for r in rows:
+        div = json.loads(r.raw_json).get("cntrctDlvrDivNm", "?")
+        by_div[div]["revenue"] += float(r.dlvr_amt or 0)
+        by_div[div]["count"] += 1
+    for div, v in by_div.items():
+        print(f"{div}: {v['revenue']:,.0f}원 ({v['count']}건)")
+
+    only_dlvr_req_total = sum(
+        float(r.dlvr_amt or 0) for r in rows if json.loads(r.raw_json).get("cntrctDlvrDivNm") == "납품요구"
+    )
+    print(f"\n'납품요구'만 합산: {only_dlvr_req_total:,.0f}원")

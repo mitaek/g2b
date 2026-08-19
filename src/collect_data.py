@@ -215,8 +215,11 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
         if dtl_prdct_no:
             params["inqryPrdctDiv"] = 2
             params["dtilPrdctClsfcNo"] = dtl_prdct_no
-        # 최종변경차수만 조회 (미지정 시 과거 개정 이력까지 전부 내려와 중복 합산됨)
-        params["fnlCntrctDlvrReqChgOrdYn"] = "Y"
+        # 최종변경차수만(fnlCntrctDlvrReqChgOrdYn=Y) 필터는 일부러 안 건다: 조달청
+        # 공식 "납품요구 물품 내역" 조회는 변경 이력 전체를 그대로 합산한 값을 총
+        # 납품요구금액으로 보여주며(실제 xlsx export로 검증 완료), 최종차수만
+        # 남기면 오히려 과거 증감분이 누락되어 금액이 달라진다. 대신 총액계약
+        # 건은 이 조회 범위 밖이므로 응답 단계에서 걸러낸다 (cntrctDlvrDivNm 확인).
         params["pageNo"] = page_no
         params["numOfRows"] = PAGE_SIZE
         response = requests.get(BASE_URL, params=params, timeout=30)
@@ -244,7 +247,11 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
         elif isinstance(item_list, dict):
             item_list = [item_list]
 
-        rows.extend(_normalize_row(item) for item in item_list)
+        # 이 오퍼레이션은 총액계약 건도 같이 내려주는데, 프로젝트 범위는
+        # "종합쇼핑몰 납품요구" 이므로 총액계약(cntrctDlvrDivNm)은 제외한다.
+        rows.extend(
+            _normalize_row(item) for item in item_list if item.get("cntrctDlvrDivNm") != "총액계약"
+        )
 
         total_count = int(body.get("totalCount", 0) or 0)
         print(f"    페이지 {page_no} 조회 완료 ({len(rows)}/{total_count}건 누적)", flush=True)

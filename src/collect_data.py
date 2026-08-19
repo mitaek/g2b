@@ -1,5 +1,5 @@
 """
-공공데이터포털 "조달청_종합쇼핑몰 납품요구 물품 내역" API 수집 스크립트.
+조달청 나라장터종합쇼핑몰품목정보서비스 - 납품요구상세정보조회(getDlvrReqDtlInfoList) 수집 스크립트.
 
 실행 모드:
   --full-backfill                 : START_YEAR(현재연도-4) ~ 현재까지 전체 수집
@@ -8,13 +8,20 @@
   --mock                          : 실제 API 대신 내장 샘플 데이터로 upsert 로직 검증
                                      (SERVICE_KEY/BASE_URL 없이도 동작 확인 가능)
 
-모든 모드는 DB upsert를 사용합니다 (dlvr_req_no + dlvr_req_chg_cha +
-prdct_clsfc_nm + dtl_prdct_nm 조합이 같으면 UPDATE, 없으면 INSERT).
+모든 모드는 DB upsert를 사용합니다 (dlvr_req_no + dlvr_req_chg_cha + prdct_sno
+조합이 같으면 UPDATE, 없으면 INSERT). 이 3개 조합이 실제 API의 자연키입니다
+(같은 세부품명이라도 물품순번이 다르면 서로 다른 품목입니다).
+
+API는 조회기간(inqryBgnDate~inqryEndDate)을 최대 1개월로 제한하므로,
+fetch_rows()가 내부적으로 30일 단위 구간으로 쪼개서 여러 번 호출합니다.
 """
 
 import argparse
+import json
 import os
+import time
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 import requests
 from dotenv import load_dotenv
@@ -32,23 +39,29 @@ BASE_URL = os.getenv(
 )
 SERVICE_KEY = os.getenv("SERVICE_KEY", "REPLACE_ME")
 
-# TODO(Swagger 확인 필요): 응답 필드명을 확인해서 DB 컬럼명과의 매핑을 채우세요.
+# 응답 필드명 -> DB 컬럼명 매핑 (참고문서 "응답 메시지 명세" 기준)
 FIELD_MAP = {
-    # "응답필드명": "db컬럼명",
-    "dcisnDt": "dcisn_dt",
+    "dlvrReqRcptDate": "dcisn_dt",  # 납품요구접수일자
     "corpNm": "corp_nm",
-    "corpBizNo": "corp_biz_no",
-    "contractNo": "contract_no",
+    "cntrctCorpBizno": "corp_biz_no",
+    "cntrctNo": "contract_no",
     "dlvrReqNo": "dlvr_req_no",
-    "dlvrReqChgCha": "dlvr_req_chg_cha",
-    "prdctClsfcNm": "prdct_clsfc_nm",
-    "dtlPrdctNm": "dtl_prdct_nm",
-    "dmndInsttNm": "dmnd_instt_nm",
-    "dlvrAmt": "dlvr_amt",
-    "dlvrQty": "dlvr_qty",
+    "dlvrReqChgOrd": "dlvr_req_chg_cha",  # 납품요구변경차수
+    "prdctSno": "prdct_sno",  # 물품순번 (자연키 일부)
+    "prdctClsfcNoNm": "prdct_clsfc_nm",  # 품명(물품분류명)
+    "dtilPrdctClsfcNoNm": "dtl_prdct_nm",  # 세부품명
+    "dminsttNm": "dmnd_instt_nm",  # 수요기관명
+    "prdctAmt": "dlvr_amt",  # 물품금액 (이 품목 라인의 금액)
+    "prdctQty": "dlvr_qty",  # 물품수량 (이 품목 라인의 수량)
 }
 
+_INT_FIELDS = {"dlvr_req_chg_cha", "prdct_sno"}
+_NUMERIC_FIELDS = {"dlvr_amt", "dlvr_qty"}
+
 START_YEAR_OFFSET = 4  # 현재연도 - 4 = 5개년
+MAX_RANGE_DAYS = 30  # API 조회기간 제한 (최대 1개월)
+PAGE_SIZE = 500
+REQUEST_DELAY_SEC = 0.1
 
 
 def _mock_rows():
@@ -61,6 +74,7 @@ def _mock_rows():
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
+            "prdct_sno": 1,
             "prdct_clsfc_nm": "사무용가구",
             "dtl_prdct_nm": "사무용 의자",
             "dmnd_instt_nm": "국립중앙도서관",
@@ -75,6 +89,7 @@ def _mock_rows():
             "contract_no": "C-2025-002",
             "dlvr_req_no": "D-2025-0002",
             "dlvr_req_chg_cha": 0,
+            "prdct_sno": 1,
             "prdct_clsfc_nm": "사무기기",
             "dtl_prdct_nm": "복합기",
             "dmnd_instt_nm": "서울특별시청",
@@ -90,6 +105,7 @@ def _mock_rows():
             "contract_no": "C-2025-001",
             "dlvr_req_no": "D-2025-0001",
             "dlvr_req_chg_cha": 0,
+            "prdct_sno": 1,
             "prdct_clsfc_nm": "사무용가구",
             "dtl_prdct_nm": "사무용 의자",
             "dmnd_instt_nm": "국립중앙도서관",
@@ -97,41 +113,111 @@ def _mock_rows():
             "dlvr_qty": 10,
             "raw_json": "{}",
         },
+        {
+            # 같은 세부품명, 다른 물품순번 (서로 다른 품목 - 유니크키 검증용)
+            "dcisn_dt": date(2025, 3, 10),
+            "corp_nm": "가나컴퍼니",
+            "corp_biz_no": "111-11-11111",
+            "contract_no": "C-2025-001",
+            "dlvr_req_no": "D-2025-0001",
+            "dlvr_req_chg_cha": 0,
+            "prdct_sno": 2,
+            "prdct_clsfc_nm": "사무용가구",
+            "dtl_prdct_nm": "사무용 의자",
+            "dmnd_instt_nm": "국립중앙도서관",
+            "dlvr_amt": 480_000,
+            "dlvr_qty": 4,
+            "raw_json": "{}",
+        },
     ]
 
 
-def fetch_rows(date_from: date, date_to: date):
-    """실제 API 호출. TODO(Swagger 확인 필요): 파라미터명/페이징 구조 확인 후 구현."""
-    params = {
-        "serviceKey": SERVICE_KEY,
-        "dcisnDtFrom": date_from.strftime("%Y%m%d"),
-        "dcisnDtTo": date_to.strftime("%Y%m%d"),
-        # TODO: pageNo, numOfRows 등 실제 페이징 파라미터 추가
-    }
-    response = requests.get(BASE_URL, params=params, timeout=30)
-    response.raise_for_status()
-    raw_items = response.json()  # TODO: 실제 응답 구조에 맞게 파싱
+def _chunk_date_range(date_from: date, date_to: date, max_days: int = MAX_RANGE_DAYS):
+    """API 조회기간이 최대 1개월로 제한되어 있어 max_days 단위로 분할."""
+    chunks = []
+    cur = date_from
+    while cur <= date_to:
+        chunk_end = min(date_to, cur + timedelta(days=max_days - 1))
+        chunks.append((cur, chunk_end))
+        cur = chunk_end + timedelta(days=1)
+    return chunks
 
+
+def _normalize_row(item: dict):
+    row = {FIELD_MAP[k]: v for k, v in item.items() if k in FIELD_MAP}
+    for k in _INT_FIELDS:
+        if row.get(k) not in (None, ""):
+            row[k] = int(row[k])
+    for k in _NUMERIC_FIELDS:
+        if row.get(k) not in (None, ""):
+            row[k] = Decimal(str(row[k]))
+    if row.get("dcisn_dt"):
+        row["dcisn_dt"] = datetime.strptime(row["dcisn_dt"], "%Y-%m-%d").date()
+    row["raw_json"] = json.dumps(item, ensure_ascii=False)
+    return row
+
+
+def _fetch_chunk(date_from: date, date_to: date):
     rows = []
-    for item in raw_items:
-        row = {FIELD_MAP[k]: v for k, v in item.items() if k in FIELD_MAP}
-        row["raw_json"] = str(item)
-        rows.append(row)
+    page_no = 1
+    while True:
+        params = {
+            "ServiceKey": SERVICE_KEY,
+            "type": "json",
+            "inqryDiv": 1,
+            "inqryBgnDate": date_from.strftime("%Y%m%d"),
+            "inqryEndDate": date_to.strftime("%Y%m%d"),
+            "pageNo": page_no,
+            "numOfRows": PAGE_SIZE,
+        }
+        response = requests.get(BASE_URL, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        header = data["response"]["header"]
+        if header.get("resultCode") != "00":
+            raise RuntimeError(f"API 오류: {header.get('resultCode')} {header.get('resultMsg')}")
+
+        body = data["response"]["body"]
+        items = body.get("items") or {}
+        item_list = items.get("item") if isinstance(items, dict) else items
+        if item_list is None:
+            item_list = []
+        elif isinstance(item_list, dict):
+            item_list = [item_list]
+
+        rows.extend(_normalize_row(item) for item in item_list)
+
+        total_count = int(body.get("totalCount", 0) or 0)
+        if not item_list or page_no * PAGE_SIZE >= total_count:
+            break
+        page_no += 1
+        time.sleep(REQUEST_DELAY_SEC)
+    return rows
+
+
+def fetch_rows(date_from: date, date_to: date):
+    rows = []
+    for chunk_from, chunk_to in _chunk_date_range(date_from, date_to):
+        rows.extend(_fetch_chunk(chunk_from, chunk_to))
+        time.sleep(REQUEST_DELAY_SEC)
     return rows
 
 
 def upsert_rows(session, rows):
-    """dlvr_req_no + dlvr_req_chg_cha + prdct_clsfc_nm + dtl_prdct_nm 기준 upsert."""
+    """dlvr_req_no + dlvr_req_chg_cha + prdct_sno 기준 upsert."""
     if not rows:
         return 0
 
     insert_fn = postgresql_insert if engine.dialect.name == "postgresql" else sqlite_insert
-    conflict_cols = ["dlvr_req_no", "dlvr_req_chg_cha", "prdct_clsfc_nm", "dtl_prdct_nm"]
+    conflict_cols = ["dlvr_req_no", "dlvr_req_chg_cha", "prdct_sno"]
     update_cols = [
         "dcisn_dt",
         "corp_nm",
         "corp_biz_no",
         "contract_no",
+        "prdct_clsfc_nm",
+        "dtl_prdct_nm",
         "dmnd_instt_nm",
         "dlvr_amt",
         "dlvr_qty",

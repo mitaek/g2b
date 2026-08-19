@@ -56,6 +56,7 @@ class DeliveryRequest(Base):
     contract_no = Column(String, nullable=True)
     dlvr_req_no = Column(String, nullable=False)
     dlvr_req_chg_cha = Column(Integer, nullable=False, default=0)
+    prdct_sno = Column(Integer, nullable=False, default=0)
     prdct_clsfc_nm = Column(String, nullable=True)
     dtl_prdct_nm = Column(String, nullable=True)
     dmnd_instt_nm = Column(String, nullable=True)
@@ -68,8 +69,7 @@ class DeliveryRequest(Base):
         UniqueConstraint(
             "dlvr_req_no",
             "dlvr_req_chg_cha",
-            "prdct_clsfc_nm",
-            "dtl_prdct_nm",
+            "prdct_sno",
             name="uq_delivery_request_identity",
         ),
         Index("ix_delivery_requests_corp_nm", "corp_nm"),

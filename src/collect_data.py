@@ -25,9 +25,11 @@ from src.db import BackfillProgress, CollectionRun, Competitor, DeliveryRequest,
 
 load_dotenv()
 
-# TODO(Swagger 확인 필요): 공공데이터포털에서 실제 요청 주소를 확인해서 교체하세요.
-# 예: https://apis.data.go.kr/1230000/ShoppingMallPrdlstInfoService/getDlvrReqInfoList
-BASE_URL = os.getenv("BASE_URL", "https://REPLACE_ME.data.go.kr/REPLACE_ME")
+# 조달청_나라장터종합쇼핑몰품목정보서비스 - 납품요구상세정보조회
+BASE_URL = os.getenv(
+    "BASE_URL",
+    "https://apis.data.go.kr/1230000/at/ShoppingMallPrdctInfoService/getDlvrReqDtlInfoList",
+)
 SERVICE_KEY = os.getenv("SERVICE_KEY", "REPLACE_ME")
 
 # TODO(Swagger 확인 필요): 응답 필드명을 확인해서 DB 컬럼명과의 매핑을 채우세요.

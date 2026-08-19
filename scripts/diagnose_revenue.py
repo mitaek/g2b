@@ -83,3 +83,14 @@ with get_session() as session:
         float(r.dlvr_amt or 0) for r in rows if json.loads(r.raw_json).get("cntrctDlvrDivNm") == "납품요구"
     )
     print(f"\n'납품요구'만 합산: {only_dlvr_req_total:,.0f}원")
+
+    # 세부품명번호(코드)별 합계 - DTL_PRDCT_NOS 커버리지/수집 결손 확인용
+    print("\n=== 세부품명번호(dtilPrdctClsfcNo)별 합계 ===")
+    by_code = defaultdict(lambda: {"revenue": 0.0, "count": 0})
+    for r in rows:
+        item = json.loads(r.raw_json)
+        code = item.get("dtilPrdctClsfcNo", "?")
+        by_code[code]["revenue"] += float(r.dlvr_amt or 0)
+        by_code[code]["count"] += 1
+    for code, v in sorted(by_code.items(), key=lambda kv: -kv[1]["revenue"]):
+        print(f"{code}: {v['revenue']:,.0f}원 ({v['count']}건)")

@@ -45,3 +45,25 @@ with get_session() as session:
     # collected_at 기준으로 언제 수집된 데이터인지 확인 (여러 시점에 걸쳐 있으면 재수집 전 잔여 데이터 의심)
     collected_times = sorted({r.collected_at.strftime("%Y-%m-%d %H:%M") for r in rows if r.collected_at})
     print(f"collected_at 종류: {collected_times[:10]}{' ...' if len(collected_times) > 10 else ''}")
+
+    # 수요기관별 매출 top5 + 가장 금액이 큰 개별 행의 원본 API 응답(raw_json) 출력
+    print("\n=== 수요기관별 매출 top5 ===")
+    by_inst = defaultdict(lambda: {"revenue": 0.0, "count": 0, "rows": []})
+    for r in rows:
+        entry = by_inst[r.dmnd_instt_nm or "미상"]
+        entry["revenue"] += float(r.dlvr_amt or 0)
+        entry["count"] += 1
+        entry["rows"].append(r)
+    top_insts = sorted(by_inst.items(), key=lambda kv: kv[1]["revenue"], reverse=True)[:5]
+    for inst, v in top_insts:
+        print(f"{inst}: {v['revenue']:,.0f}원 ({v['count']}건)")
+
+    print("\n=== 매출 top5 개별 행의 원본 API 응답 ===")
+    top_rows = sorted(rows, key=lambda r: float(r.dlvr_amt or 0), reverse=True)[:5]
+    for r in top_rows:
+        print(
+            f"- dlvr_req_no={r.dlvr_req_no} chg_cha={r.dlvr_req_chg_cha} "
+            f"prdct_idnt_no={r.prdct_idnt_no} dcisn_dt={r.dcisn_dt} dlvr_amt={r.dlvr_amt} "
+            f"dmnd_instt_nm={r.dmnd_instt_nm}"
+        )
+        print(f"  raw_json: {r.raw_json}")

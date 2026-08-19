@@ -87,6 +87,37 @@ def yearly_totals(session, companies):
     return {"years": sorted_years, "totals": totals}
 
 
+def kpi_by_year(session, companies, year):
+    rows = _rows_for_companies(session, companies)
+    result = {}
+    for company in companies:
+        total = sum(
+            _amt(r) for r in rows if r.corp_nm == company and r.dcisn_dt and r.dcisn_dt.year == year
+        )
+        result[company] = {"total_revenue": total}
+    return result
+
+
+def top_institutions_by_year(session, companies, year):
+    rows = [r for r in _rows_for_companies(session, companies) if r.dcisn_dt and r.dcisn_dt.year == year]
+    by_company_inst = defaultdict(lambda: defaultdict(lambda: {"revenue": 0.0, "count": 0}))
+    for r in rows:
+        inst = r.dmnd_instt_nm or "미상"
+        entry = by_company_inst[r.corp_nm][inst]
+        entry["revenue"] += _amt(r)
+        entry["count"] += 1
+
+    result = {}
+    for company in companies:
+        items = [
+            {"institution": name, "revenue": v["revenue"], "count": v["count"]}
+            for name, v in by_company_inst[company].items()
+        ]
+        items.sort(key=lambda x: x["revenue"], reverse=True)
+        result[company] = items[:TOP_N]
+    return result
+
+
 def category_totals(session, companies):
     rows = _rows_for_companies(session, companies)
     result = {company: defaultdict(float) for company in companies}

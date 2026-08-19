@@ -130,13 +130,17 @@ def backfill_status(db=Depends(get_db)):
 
 
 @app.get("/api/dashboard-data")
-def dashboard_data(companies: Optional[str] = None, period: str = "all", db=Depends(get_db)):
+def dashboard_data(
+    companies: Optional[str] = None, period: str = "all", year: Optional[int] = None, db=Depends(get_db)
+):
     company_list = _resolve_companies(db, companies)
     if not company_list:
         raise HTTPException(status_code=400, detail="등록된 경쟁사가 없습니다")
 
     monthly = aggregations.monthly_series(db, company_list)
     yearly = aggregations.yearly_totals(db, company_list)
+    selected_year = year if year is not None else (max(yearly["years"]) if yearly["years"] else None)
+
     return {
         "companies": company_list,
         "kpi": aggregations.kpi(db, company_list),
@@ -149,6 +153,11 @@ def dashboard_data(companies: Optional[str] = None, period: str = "all", db=Depe
         "top_institutions": aggregations.top_institutions(db, company_list),
         "top_products": aggregations.top_products(db, company_list),
         "unit_price_comparison": aggregations.unit_price_comparison(db, company_list),
+        "selected_year": selected_year,
+        "year_kpi": aggregations.kpi_by_year(db, company_list, selected_year) if selected_year else {},
+        "year_top_institutions": aggregations.top_institutions_by_year(db, company_list, selected_year)
+        if selected_year
+        else {},
     }
 
 

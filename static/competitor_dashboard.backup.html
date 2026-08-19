@@ -84,7 +84,7 @@
   }
 
   .add-form { display: flex; gap: 8px; margin-top: 12px; }
-  input[type="text"], select {
+  input[type="text"] {
     background: var(--panel-2);
     border: 1px solid var(--border);
     color: var(--text);
@@ -185,8 +185,8 @@
   </section>
 
   <section class="panel">
-    <h2>최근 5개년 매출 추이</h2>
-    <svg id="yearlyTrendChart" class="chart-svg"></svg>
+    <h2>월별 매출 추이</h2>
+    <svg id="monthlyChart" class="chart-svg"></svg>
   </section>
 
   <section>
@@ -220,13 +220,8 @@
   <section>
     <div class="two-col">
       <div class="panel">
-        <h2>연도별 매출 총액 / TOP 수요기관</h2>
-        <div class="toggle-row" id="year-select-row">
-          <label for="institutions-year-select" class="hint" style="margin:0 6px 0 0;">연도:</label>
-          <select id="institutions-year-select"></select>
-        </div>
+        <h2>TOP 수요기관</h2>
         <div class="tabs" id="institutions-tabs"></div>
-        <div class="kpi-card" id="institutions-year-total" style="margin-bottom:10px;"></div>
         <table id="institutions-table"><thead><tr><th>기관명</th><th>매출</th><th>건수</th></tr></thead><tbody></tbody></table>
       </div>
       <div class="panel">
@@ -261,7 +256,6 @@ let sharePeriod = 'all';
 let dashboardData = null;
 let activeInstitutionTab = null;
 let activeProductTab = null;
-let selectedYear = null;   // TOP 수요기관 패널의 연도 선택 상태
 
 function colorFor(name) {
   const idx = allCompetitors.findIndex(c => c.name === name);
@@ -395,15 +389,12 @@ async function loadDashboard() {
     return;
   }
   const params = new URLSearchParams({ companies: selectedCompanies.join(','), period: sharePeriod });
-  if (selectedYear) params.set('year', selectedYear);
   dashboardData = await api(`/api/dashboard-data?${params.toString()}`);
-  selectedYear = dashboardData.selected_year;
   renderKpi();
-  renderYearlyTrendChart();
+  renderMonthlyChart();
   renderYearlyChart();
   renderShareChart();
   renderCategoryChart();
-  renderYearSelect();
   renderTopTabs();
   renderSummaryTable();
   await refreshUnitPrice();
@@ -548,12 +539,12 @@ function renderLegend(containerId, items) {
   });
 }
 
-function renderYearlyTrendChart() {
+function renderMonthlyChart() {
   const datasets = selectedCompanies.map(name => ({
-    data: dashboardData.yearly_totals[name] || [],
+    data: dashboardData.monthly_series[name] || [],
     color: colorFor(name),
   }));
-  drawLineChart(document.getElementById('yearlyTrendChart'), dashboardData.years, datasets);
+  drawLineChart(document.getElementById('monthlyChart'), dashboardData.months, datasets);
 }
 
 function renderYearlyChart() {
@@ -638,39 +629,15 @@ function renderTabs(containerId, activeName, onClick) {
   });
 }
 
-function renderYearSelect() {
-  const el = document.getElementById('institutions-year-select');
-  const years = dashboardData.years || [];
-  el.innerHTML = years.map(y => `<option value="${y}">${y}년</option>`).join('');
-  el.value = String(selectedYear);
-}
-
-document.getElementById('institutions-year-select').addEventListener('change', (e) => {
-  selectedYear = Number(e.target.value);
-  loadDashboard();
-});
-
 function renderInstitutionsTable() {
-  const totalEl = document.getElementById('institutions-year-total');
-  const yearKpi = (dashboardData.year_kpi || {})[activeInstitutionTab] || {};
-  totalEl.innerHTML = `
-    <div class="name"><span class="chip-color-dot" style="background:${colorFor(activeInstitutionTab)}"></span> ${activeInstitutionTab} · ${selectedYear}년 매출 총액</div>
-    <div class="value">${fmtWon(yearKpi.total_revenue)}</div>
-  `;
-
   const tbody = document.querySelector('#institutions-table tbody');
   tbody.innerHTML = '';
-  const rows = ((dashboardData.year_top_institutions || {})[activeInstitutionTab] || []);
+  const rows = (dashboardData.top_institutions[activeInstitutionTab] || []);
   rows.forEach(r => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${r.institution}</td><td>${fmtWon(r.revenue)}</td><td>${r.count}</td>`;
     tbody.appendChild(tr);
   });
-  if (rows.length === 0) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="3" class="hint">${selectedYear}년 데이터가 없습니다.</td>`;
-    tbody.appendChild(tr);
-  }
 }
 
 function renderProductsTable() {

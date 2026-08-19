@@ -202,6 +202,7 @@ def _parse_api_response(text: str):
 def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
     rows = []
     page_no = 1
+    fetched_count = 0  # 실제 수신한 원본 건수 누적 (서버가 numOfRows보다 적게 줄 수 있어 이걸로 종료 판단)
     label = f"{date_from} ~ {date_to}" + (f" [{dtl_prdct_no}]" if dtl_prdct_no else "")
     print(f"  [fetch] {label} 조회 시작...", flush=True)
     while True:
@@ -252,10 +253,14 @@ def _fetch_chunk(date_from: date, date_to: date, dtl_prdct_no: str = None):
         rows.extend(
             _normalize_row(item) for item in item_list if item.get("cntrctDlvrDivNm") != "총액계약"
         )
+        fetched_count += len(item_list)
 
         total_count = int(body.get("totalCount", 0) or 0)
-        print(f"    페이지 {page_no} 조회 완료 ({len(rows)}/{total_count}건 누적)", flush=True)
-        if not item_list or page_no * PAGE_SIZE >= total_count:
+        print(f"    페이지 {page_no} 조회 완료 ({len(rows)}건 누적, 원본 {fetched_count}/{total_count}건)", flush=True)
+        # numOfRows만큼 못 받았어도(서버가 더 적게 줬어도) 실제 받은 누적 건수로
+        # 종료를 판단한다 (page_no * PAGE_SIZE 가정은 서버가 항상 요청한 만큼
+        # 채워준다는 전제라 어긋나면 마지막 몇 건이 조용히 누락될 수 있음).
+        if not item_list or fetched_count >= total_count:
             break
         page_no += 1
         time.sleep(REQUEST_DELAY_SEC)
